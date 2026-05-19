@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dragon Dodger</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body { 
+            background: #FFFFFF; 
+            color: #000000; 
+            font-family: 'Press Start 2P', cursive; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            margin-top: 30px; 
+        }
+        
+        h2 {
+            font-size: 36px;
+            text-transform: uppercase;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        canvas { 
+            background: #FFFFFF; 
+        }
+        
+        .instructions { 
+            margin-top: 20px; 
+            font-size: 12px;
+            line-height: 1.8;
+            text-align: center;
+        }
+        
+        #restartBtn {
+            display: none; 
+            margin-top: 30px;
+            padding: 15px 25px;
+            font-size: 16px;
+            background-color: #000000; 
+            color: #FFFFFF; 
+            font-family: 'Press Start 2P', cursive; 
+            border: none;
+            cursor: pointer;
+        }
+
+        #restartBtn:hover {
+            background-color: #444444; 
+        }
+    </style>
+</head>
+<body>
+    <h2>DRAGON DODGER</h2>
+    <canvas id="gameCanvas" width="1000" height="600"></canvas>
+    
+    <button id="restartBtn">PLAY AGAIN</button>
+    
+    <div class="instructions">Use <strong>Arrow Up</strong> and <strong>Arrow Down</strong><br><br>to avoid the magic blasts!</div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const restartBtn = document.getElementById('restartBtn');
+
+        // Load Sprite Sheets (PNGs)
+        const dragonImg = new Image();
+        dragonImg.src = 'dragon.png';
+
+        const blastImg = new Image();
+        blastImg.src = 'blast.png';
+
+        // Game State
+        let isGameOver = false;
+        let score = 0;
+        let frameCount = 0;
+        
+        // Spawning Timers
+        let spawnTimer = 0;
+        let currentSpawnInterval = 60; 
+
+        // Player (Dragon)
+        const dragon = {
+            x: 50,
+            y: 260, 
+            width: 90, 
+            height: 90, // This will be overwritten as soon as the image loads to preserve the aspect ratio
+            speed: 6, 
+            dy: 0 
+        };
+
+        // Obstacles (Magic Blasts)
+        let blasts = [];
+
+        // 1. Input Handling
+        document.addEventListener('keydown', (e) => {
+            if(["ArrowUp","ArrowDown"].indexOf(e.code) > -1) {
+                e.preventDefault();
+            }
+            if (e.key === 'ArrowUp') dragon.dy = -dragon.speed;
+            if (e.key === 'ArrowDown') dragon.dy = dragon.speed;
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowUp' && dragon.dy < 0) dragon.dy = 0;
+            if (e.key === 'ArrowDown' && dragon.dy > 0) dragon.dy = 0;
+        });
+
+        // 2. Update Logic
+        function update() {
+            if (isGameOver) return;
+
+            dragon.y += dragon.dy;
+
+            // Keep dragon in bounds using its dynamically calculated height
+            if (dragon.y < 0) dragon.y = 0;
+            if (dragon.y + dragon.height > canvas.height) dragon.y = canvas.height - dragon.height;
+
+            frameCount++;
+            spawnTimer++;
+            let secondsAlive = frameCount / 60;
+
+            // Slightly gentler difficulty scaling
+            if (secondsAlive > 30) {
+                currentSpawnInterval = Math.max(25, 60 - Math.floor((secondsAlive - 30) * 0.5));
+            }
+
+            if (spawnTimer >= currentSpawnInterval) { 
+                spawnTimer = 0;
+                
+                // Reduced max blasts per wave to 3 for better dodging paths
+                let blastsInWave = Math.floor(Math.random() * 3) + 1;
+                
+                for (let i = 0; i < blastsInWave; i++) {
+                    const radius = 20; 
+                    const blastY = Math.random() * (canvas.height - radius * 2) + radius;
+                    
+                    let currentSpeed = 6; 
+                    
+                    if (secondsAlive > 30) {
+                        let speedIncrease = ((secondsAlive - 30) / 5) * 0.4; 
+                        currentSpeed += speedIncrease;
+                    }
+                    
+                    currentSpeed = Math.min(currentSpeed, 12); // Reduced max speed slightly
+                    
+                    // Increased staggerX heavily so blasts are spread out horizontally
+                    let staggerX = Math.random() * 250; 
+
+                    blasts.push({
+                        x: canvas.width + staggerX,
+                        y: blastY,
+                        radius: radius,
+                        speed: currentSpeed 
+                    });
+                }
+            }
+
+            for (let i = 0; i < blasts.length; i++) {
+                let b = blasts[i];
+                b.x -= b.speed;
+
+                // Hitbox logic scaled to the dynamic width/height
+                let hitboxShrinkX = dragon.width * 0.3; 
+                let hitboxShrinkY = dragon.height * 0.3; 
+                
+                let distX = Math.abs(b.x - (dragon.x + dragon.width / 2));
+                let distY = Math.abs(b.y - (dragon.y + dragon.height / 2));
+
+                if (distX <= ((dragon.width - hitboxShrinkX) / 2 + b.radius) && 
+                    distY <= ((dragon.height - hitboxShrinkY) / 2 + b.radius)) {
+                    isGameOver = true;
+                }
+            }
+
+            blasts = blasts.filter(b => {
+                if (b.x + b.radius < 0) {
+                    score += 10;
+                    return false; 
+                }
+                return true; 
+            });
+        }
+
+        // 3. Draw Graphics
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.imageSmoothingEnabled = false; 
+
+            // --- SPRITE SHEET ANIMATION MATH ---
+            
+            // Dragon Animation (2x2 grid)
+            let dragonCols = 2;
+            let dragonRows = 2;
+            let dragonFrame = Math.floor(frameCount / 12) % 4; 
+            
+            let dFrameWidth = dragonImg.width / dragonCols;
+            let dFrameHeight = dragonImg.height / dragonRows;
+            
+            let dSourceX = (dragonFrame % dragonCols) * dFrameWidth;
+            let dSourceY = Math.floor(dragonFrame / dragonCols) * dFrameHeight;
+
+            ctx.drawImage(
+                dragonImg, 
+                dSourceX, dSourceY, dFrameWidth, dFrameHeight, 
+                dragon.x, dragon.y, dragon.width, dragon.height  
+            );
+
+            // Blast Animation (2x2 grid)
+            let blastCols = 2;
+            let blastRows = 2;
+            let blastFrame = Math.floor(frameCount / 8) % 4; 
+            
+            let bFrameWidth = blastImg.width / blastCols;
+            let bFrameHeight = blastImg.height / blastRows;
+            
+            blasts.forEach(b => {
+                let drawSize = b.radius * 3.5; 
+                
+                // Calculate the source slice based on the current animation frame
+                let bSourceX = (blastFrame % blastCols) * bFrameWidth;
+                let bSourceY = Math.floor(blastFrame / blastCols) * bFrameHeight;
+                
+                ctx.drawImage(
+                    blastImg, 
+                    bSourceX, bSourceY, bFrameWidth, bFrameHeight, 
+                    b.x - drawSize / 2, b.y - drawSize / 2, drawSize, drawSize 
+                );
+            });
+
+
+            // Draw Score 
+            ctx.fillStyle = '#000000';
+            ctx.font = '16px "Press Start 2P"';
+            ctx.textAlign = 'left';
+            ctx.fillText(`SCORE: ${score}`, 10, 30);
+
+            // Draw Game Over Screen
+            if (isGameOver) {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                ctx.fillStyle = '#F44336';
+                ctx.font = '36px "Press Start 2P"';
+                ctx.textAlign = 'center';
+                ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 + 15);
+                
+                restartBtn.style.display = 'block'; 
+            }
+        }
+
+        // 4. Reset Game Logic
+        function resetGame() {
+            restartBtn.style.display = 'none';
+            isGameOver = false;
+            score = 0;
+            frameCount = 0;
+            spawnTimer = 0;
+            currentSpawnInterval = 60;
+            dragon.y = 260; 
+            dragon.dy = 0;
+            blasts = [];
+            gameLoop();
+        }
+
+        restartBtn.addEventListener('click', resetGame);
+
+        // Wait for assets to load, then calculate exact ratio before starting
+        let assetsLoaded = 0;
+        function checkAssetsLoaded() {
+            assetsLoaded++;
+            if(assetsLoaded === 2) {
+                // Calculate and set the correct height based on the image's natural aspect ratio
+                let naturalRatio = dragonImg.height / dragonImg.width;
+                dragon.height = dragon.width * naturalRatio;
+
+                document.fonts.ready.then(() => {
+                    gameLoop();
+                });
+            }
+        }
+
+        dragonImg.onload = checkAssetsLoaded;
+        blastImg.onload = checkAssetsLoaded;
+
+        // 5. The Engine Loop
+        function gameLoop() {
+            update();
+            draw();
+            if (!isGameOver) {
+                requestAnimationFrame(gameLoop);
+            }
+        }
+    </script>
+</body>
+</html>
