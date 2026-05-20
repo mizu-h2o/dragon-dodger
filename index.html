@@ -62,7 +62,7 @@
         const ctx = canvas.getContext('2d');
         const restartBtn = document.getElementById('restartBtn');
 
-        // Load Sprite Sheets (PNGs)
+        // Load Sprite Sheets
         const dragonImg = new Image();
         dragonImg.src = 'dragon.png';
 
@@ -84,7 +84,7 @@
             x: 50,
             y: 260, 
             width: 90, 
-            height: 90, // Will recalculate on load to preserve ratio
+            height: 90, 
             speed: 6, 
             dy: 0 
         };
@@ -113,45 +113,45 @@
             dragon.y += dragon.dy;
 
             // Keep dragon inside canvas bounds AND protect the text area
-            const ceiling = 70; // Stops the dragon right below the "LEVEL" text
+            const ceiling = 70; 
             if (dragon.y < ceiling) dragon.y = ceiling;
             if (dragon.y + dragon.height > canvas.height) dragon.y = canvas.height - dragon.height;
 
             frameCount++;
             spawnTimer++;
             
-            // Calculate current level (increases every 30 seconds / 1800 frames)
+            // Calculate current level
             let secondsAlive = frameCount / 60;
             currentLevel = Math.floor(secondsAlive / 30) + 1;
 
-            // Difficulty progression
             if (currentLevel > 1) {
                 currentSpawnInterval = Math.max(25, 60 - Math.floor((secondsAlive - 30) * 0.5));
             }
 
+            // Spawn Blasts
             if (spawnTimer >= currentSpawnInterval) { 
                 spawnTimer = 0;
-                
                 let blastsInWave = Math.floor(Math.random() * 3) + 1;
                 
                 for (let i = 0; i < blastsInWave; i++) {
-                    // Size Variability Logic: Only starts after Level 1 (30 seconds)
                     let scaleModifier = 1.0; 
                     if (currentLevel > 1) {
-                        // Randomizes scale between 0.6x (tiny) and 1.6x (huge)
                         scaleModifier = 0.6 + Math.random() * 1.0; 
                     }
 
-                    // Base radius is 14 (representing just the red core). Multiplied by scale.
-                    const hitboxRadius = 14 * scaleModifier; 
-                    const blastY = Math.random() * (canvas.height - hitboxRadius * 6) + hitboxRadius * 3;
+                    // Separation of Visual Size and Physical Hitbox
+                    // The drawing size scales normally
+                    const blastDrawSize = 45 * scaleModifier; 
+                    
+                    // The hitbox is a tiny strict radius (just 6 pixels base) that scales up/down
+                    const hitboxRadius = 6 * scaleModifier; 
+                    
+                    const blastY = Math.random() * (canvas.height - ceiling - blastDrawSize) + ceiling + blastDrawSize / 2;
                     
                     let currentSpeed = 6; 
                     if (currentLevel > 1) {
                         let speedIncrease = ((secondsAlive - 30) / 5) * 0.4; 
                         currentSpeed += speedIncrease;
-                        
-                        // Smaller blasts move slightly faster, giant blasts move slightly slower
                         if (scaleModifier < 1) currentSpeed += 1.5;
                         if (scaleModifier > 1.3) currentSpeed -= 1.0;
                     }
@@ -162,32 +162,41 @@
                     blasts.push({
                         x: canvas.width + staggerX,
                         y: blastY,
-                        radius: hitboxRadius, // The strict core hitbox
-                        scale: scaleModifier, // Used later to draw the image properly
+                        radius: hitboxRadius, // Used ONLY for collision
+                        drawSize: blastDrawSize, // Used ONLY for drawing
+                        scale: scaleModifier, 
                         speed: currentSpeed 
                     });
                 }
             }
 
+            // Move and Check Collisions (Circle-to-Circle)
+            
+            // Calculate the exact center of the dragon's chest
+            let dragonCenterX = dragon.x + dragon.width / 2;
+            let dragonCenterY = dragon.y + dragon.height * 0.55; // Pushed slightly down from true center to avoid the head/wings
+            
+            // The dragon's vulnerable spot is just 15% of its total width
+            let dragonHitRadius = dragon.width * 0.15; 
+
             for (let i = 0; i < blasts.length; i++) {
                 let b = blasts[i];
                 b.x -= b.speed;
 
-                let hitboxShrinkX = dragon.width * 0.35; 
-                let hitboxShrinkY = dragon.height * 0.35; 
-                
-                let distX = Math.abs(b.x - (dragon.x + dragon.width / 2));
-                let distY = Math.abs(b.y - (dragon.y + dragon.height / 2));
+                // Radial Distance Math (Pythagorean theorem)
+                let dx = dragonCenterX - b.x;
+                let dy = dragonCenterY - b.y;
+                let distance = Math.sqrt(dx * dx + dy * dy);
 
-                // Collision explicitly compares against the red core radius
-                if (distX <= ((dragon.width - hitboxShrinkX) / 2 + b.radius) && 
-                    distY <= ((dragon.height - hitboxShrinkY) / 2 + b.radius)) {
+                // If the distance between the two centers is less than their combined radii, it's a hit
+                if (distance < dragonHitRadius + b.radius) {
                     isGameOver = true;
                 }
             }
 
+            // Clean up off-screen blasts
             blasts = blasts.filter(b => {
-                if (b.x + b.radius * 3 < 0) {
+                if (b.x + b.drawSize < 0) {
                     score += 10;
                     return false; 
                 }
@@ -226,16 +235,14 @@
             let bFrameHeight = blastImg.height / blastRows;
             
             blasts.forEach(b => {
-                // The drawing size is roughly 3.2 times larger than the red core hitbox
-                let drawSize = b.radius * 3.2; 
-                
                 let bSourceX = (blastFrame % blastCols) * bFrameWidth;
                 let bSourceY = Math.floor(blastFrame / blastCols) * bFrameHeight;
                 
+                // Draw the blast image centered perfectly over the tiny invisible hitbox
                 ctx.drawImage(
                     blastImg, 
                     bSourceX, bSourceY, bFrameWidth, bFrameHeight, 
-                    b.x - drawSize / 2, b.y - drawSize / 2, drawSize, drawSize 
+                    b.x - b.drawSize / 2, b.y - b.drawSize / 2, b.drawSize, b.drawSize 
                 );
             });
 
@@ -243,14 +250,12 @@
             ctx.fillStyle = '#000000';
             ctx.font = '16px "Press Start 2P"';
             ctx.textAlign = 'left';
-            
             ctx.fillText(`SCORE: ${score}`, 10, 30);
             
-            // Draw Level
             ctx.fillStyle = '#F44336';
             ctx.fillText(`LEVEL: ${currentLevel}`, 10, 60);
 
-            // Draw Game Over Screen
+            // Game Over Screen
             if (isGameOver) {
                 ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -281,7 +286,6 @@
 
         restartBtn.addEventListener('click', resetGame);
 
-        // Calculate ratios and boot game once assets load
         let assetsLoaded = 0;
         function checkAssetsLoaded() {
             assetsLoaded++;
@@ -298,7 +302,6 @@
         dragonImg.onload = checkAssetsLoaded;
         blastImg.onload = checkAssetsLoaded;
 
-        // 5. The Engine Loop
         function gameLoop() {
             update();
             draw();
